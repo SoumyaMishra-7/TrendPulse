@@ -10,11 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { useDemoStore } from "@/lib/state/demoStore";
-import { sampleBriefs, type CampaignBrief, type Trend } from "@/lib/mock/data";
-
-function sleep(ms: number) {
-  return new Promise((r) => setTimeout(r, ms));
-}
+import { sampleBriefs, type CampaignBrief } from "@/lib/mock/data";
 
 export function CampaignGeneratorPage() {
   const router = useRouter();
@@ -30,13 +26,7 @@ export function CampaignGeneratorPage() {
     if (!selectedTrend) return;
     setWorking(true);
 
-    // Simulate AI
-    for (const ms of [450, 420, 380]) {
-      // eslint-disable-next-line no-await-in-loop
-      await sleep(ms);
-    }
-
-    const b = sampleBriefs[selectedTrend.id] ?? {
+    const fallbackBrief = sampleBriefs[selectedTrend.id] ?? {
       objective: "Launch a creator-led trend campaign",
       contentStrategy: "A short hook + routine shots + CTA",
       reelScript: "[0-5s] Hook…\n[5-20s] Value…\n[20-30s] CTA…",
@@ -44,7 +34,50 @@ export function CampaignGeneratorPage() {
       cta: "Shop now",
     };
 
-    setGeneratedBrief(b);
+    try {
+      console.log("Gemini request started");
+
+      const controller = new AbortController();
+      const timeout = window.setTimeout(() => controller.abort(), 10000);
+
+      const response = await fetch("/api/generate-brief", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          trendName: selectedTrend.name,
+          trendCategory: selectedTrend.category,
+          trendScore: selectedTrend.score,
+        }),
+        signal: controller.signal,
+      });
+
+      window.clearTimeout(timeout);
+
+      if (!response.ok) {
+        throw new Error("Gemini request failed");
+      }
+
+      const aiResponse = (await response.json()) as CampaignBrief;
+
+      if (
+        typeof aiResponse.objective !== "string" ||
+        typeof aiResponse.contentStrategy !== "string" ||
+        typeof aiResponse.reelScript !== "string" ||
+        !Array.isArray(aiResponse.hashtags) ||
+        !aiResponse.hashtags.every((tag) => typeof tag === "string") ||
+        typeof aiResponse.cta !== "string"
+      ) {
+        throw new Error("Invalid Gemini response");
+      }
+
+      console.log("Gemini success");
+      setGeneratedBrief(aiResponse);
+    } catch {
+      console.log("Gemini fallback activated");
+      setGeneratedBrief(fallbackBrief);
+    }
 
     // Also simulate creator selection on first generate
     if (selectedCreators.length === 0 || regenerate) {
